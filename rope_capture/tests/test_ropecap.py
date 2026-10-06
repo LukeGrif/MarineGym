@@ -137,3 +137,17 @@ def test_build_rov(tmp_path):
     meta = json.load(open(tmp_path / "rov.json"))
     assert np.allclose(meta["jaws_centre"], np.array(meta["camera_position"]) + [0.12, 0, -0.26])
     assert set(meta["jaws"]) == {"jaw_left", "jaw_right"}
+
+
+def test_mixed_worlds_vary_and_harbours_are_sparse():
+    from ropecap import worlds
+
+    rng = np.random.default_rng(0)
+    made = [worlds.make_world("mixed", rng) for _ in range(300)]
+    kinds = {w["kind"] for w in made}
+    assert {"seabed", "reef", "open_water", "harbour", "quay", "pool"} <= kinds
+    assert "wreck" not in kinds  # only with a wreck model
+    assert max(len(w["pilings"]) for w in made) <= 6
+    assert np.mean([len(w["pilings"]) > 0 for w in made]) < 0.2
+    for w in made:  # the rope's anchor is clear of pilings and walls
+        assert worlds.clear_of_obstacles(w, (0.0, 0.0), 0.3)

@@ -52,11 +52,22 @@ at the picture's visibility. On top of that come the lamp lighting up the
 water in its beam and specks of suspended particles. MarineGym itself has
 no underwater rendering.
 
-**Worlds** (`--world`; a new layout, floor and textures every rope):
-- `seabed`: sand, rippled sand, mud, gravel, rock, shell sand, silt and weed (now and then a pool floor), uneven, with rocks
-- `harbour`: rows of round or square pilings (concrete, timber or steel, with marine growth), often a quay wall (concrete, stone or sheet piles); the rope hangs among them, so they hide parts of it
-- `marinegym`: MarineGym's own `EmptyMarine.usd` seabed. Its materials download from NVIDIA's servers, so it needs internet access.
-- `wreck`: a seabed plus a wreck model you give it: `--wreck path/to/wreck.usd` (MarineGym has none)
+**Worlds** (`--world`). The default, `mixed`, is a different kind of
+place for every rope, so the network sees many backgrounds:
+
+| place | share of ropes | what's there |
+|---|---|---|
+| `seabed` | 30% | open floor: sand, ripples, mud, gravel, rock, shell sand, silt and weed, sometimes rocks, kelp or debris (blocks, pipes, logs, tyres) |
+| `reef` | 17% | rocky: boulders and lots of weed and kelp |
+| `open_water` | 15% | deep (15–30 m): the floor far below or out of sight, little around the rope |
+| `harbour` | 12% | a few pilings (1–6, in a row or scattered: concrete, timber or steel, with growth), sometimes a quay wall |
+| `quay` | 12% | a quay wall behind the rope (concrete, stone or sheet piles), maybe rubble |
+| `pool` | 8% | a test tank: tiled or painted floor and walls |
+| `wreck` | 6% | only with `--wreck model.usd`: a seabed with your wreck model |
+
+Any of these can also be used for a whole run (`--world reef`).
+`--world marinegym` uses MarineGym's own `EmptyMarine.usd` seabed; its
+materials download from NVIDIA's servers, so it needs internet access.
 
 ## Install (once)
 
@@ -106,8 +117,8 @@ python3 compare_bluesim.py /path/to/test1080 ~/rope_sim/run1 --out compare.jpg
 ```
 
 **4. A big set:** `.\collect_isaac.ps1 C:\rope_isaac` (Windows) or
-`./collect_isaac.sh ~/rope_isaac` (Linux): 5 runs × 2000 pictures,
-alternating seabed and harbour, seeds 1001 and up. Then train on both sources:
+`./collect_isaac.sh ~/rope_isaac` (Linux): 5 runs × 2000 pictures of
+mixed places, seeds 1001 and up. Then train on both sources:
 ```bash
 python3 dataset/train_seg.py ~/rope_sim/run* ~/rope_isaac/isaac_run*
 ```

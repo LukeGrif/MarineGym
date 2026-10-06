@@ -52,7 +52,7 @@ def rgb_to_hsv(c):
 
 
 class Planner:
-    def __init__(self, seed=1, size=(1920, 1080), world_kind="seabed", rov_meta=None, wreck_path=None):
+    def __init__(self, seed=1, size=(1920, 1080), world_kind="mixed", rov_meta=None, wreck_path=None):
         self.rng = np.random.default_rng(seed)
         self.size = size
         self.world_kind = world_kind
@@ -117,7 +117,8 @@ class Planner:
                 pins[0] = pts[0]
             if setup in ("surface_floor", "standing"):
                 pins[len(pts) - 1] = pts[-1]
-        rope = Rope(pts, ROPE_DIAMETER, density, pins, floor=floor, current=current, obstacles=world["obstacles"])
+        walls = [(wall["centre"], wall["normal"]) for wall in world["walls"]]
+        rope = Rope(pts, ROPE_DIAMETER, density, pins, floor=floor, current=current, obstacles=world["obstacles"], walls=walls)
         # the ROV waits 3 m back from the rope, at mid depth (where BlueSim starts it),
         # its tether running up to the surface behind it
         rov_home = top - forward * 3.0
@@ -160,7 +161,9 @@ class Planner:
         pts = polyline([start, sag, (sag + end) / 2 + geom.Z_UP * 0.3, end], TETHER_PIECE)
         tether = Rope(pts, 0.0076, 1030.0, {0: pts[0], len(pts) - 1: pts[-1]},
                       floor=floor, current=self.scene["current"] if self.scene else (0, 0, 0),
-                      obstacles=self.scene["world"]["obstacles"] if self.scene else (), iterations=20, bend=0.0)
+                      obstacles=self.scene["world"]["obstacles"] if self.scene else (),
+                      walls=[(wl["centre"], wl["normal"]) for wl in self.scene["world"]["walls"]] if self.scene else (),
+                      iterations=20, bend=0.0)
         tether.run(settle)
         return tether
 
@@ -267,8 +270,12 @@ class Planner:
             k = len(points) // 2 - 1
             p = points[k]
         along = geom.normalize(points[k + 1] - points[k])
-        heading = rng.uniform(0, 2 * np.pi)
-        forward = np.array([np.cos(heading), np.sin(heading), 0.0])
+        world = self.scene["world"]
+        for _ in range(20):  # a heading that keeps the ROV out of walls and pilings
+            heading = rng.uniform(0, 2 * np.pi)
+            forward = np.array([np.cos(heading), np.sin(heading), 0.0])
+            if worlds.clear_of_obstacles(world, (p - forward * 0.8)[:2], 0.7):
+                break
         left = np.cross(geom.Z_UP, forward)
         r = rng.random()
         if r < 0.25:

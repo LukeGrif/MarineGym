@@ -6,6 +6,8 @@ turns of the lay. The floors are tileable, a new one for every scene.
 """
 import numpy as np
 
+from . import geom
+
 ROPE_TILE_LAYS = 2  # lay lengths along the rope per texture
 
 
@@ -16,6 +18,15 @@ def tileable_noise(rng, size, cells):
     g = rng.random((cells, cells)).astype(np.float32)
     big = cv2.resize(np.tile(g, (3, 3)), (size * 3, size * 3), interpolation=cv2.INTER_CUBIC)
     return big[size:2 * size, size:2 * size]
+
+
+def tileable_noise_rect(rng, width, height, cells_u, cells_v):
+    """Smooth noise in [0, 1], width x height, seamless when tiled both ways."""
+    import cv2
+
+    g = rng.random((cells_v, cells_u)).astype(np.float32)
+    big = cv2.resize(np.tile(g, (3, 3)), (width * 3, height * 3), interpolation=cv2.INTER_CUBIC)
+    return big[height:2 * height, width:2 * width]
 
 
 def fbm(rng, size, base_cells=4, octaves=5, gain=0.5):
@@ -36,8 +47,8 @@ def to_u8(img):
 
 # ----------------------------------------------------------------- rope
 def rope_texture(look, width=512, height=1024):
-    """The rope's colour picture: strands (or braid carriers) shaded in their
-    grooves, yarns, an optional tracer/fleck and loose fibres."""
+    """The rope's colour picture: strands (or braid carriers) lightly shaded in
+    their grooves, yarns, an optional tracer/fleck, wear and loose fibres."""
     rng = np.random.default_rng(look.get("seed", 0))
     lay = look["lay_length"]
     tile = lay * ROPE_TILE_LAYS
@@ -47,6 +58,8 @@ def rope_texture(look, width=512, height=1024):
     s = v[:, None] * tile
     base = np.array(look["color"], np.float32)
     tracer = None if look.get("tracer") is None else np.array(look["tracer"], np.float32)
+    # the strands' own shape (geom.strand_radius) shades the grooves when it's rendered,
+    # so the texture only darkens them a little: colour, yarns, tracer, wear
     if look["construction"] == "3-strand":
         phase = theta - 2 * np.pi * s / lay
         w = np.mod(phase * 3 / (2 * np.pi), 1.0)  # across a strand, 0 and 1 are the grooves
@@ -54,29 +67,36 @@ def rope_texture(look, width=512, height=1024):
         lobe = np.sqrt(np.abs(np.cos(1.5 * phase)))
         # yarns twist the other way round within each strand
         yarn = 0.5 + 0.5 * np.sin(2 * np.pi * (7 * w + 3 * s / lay))
-        shade = 0.45 + 0.55 * lobe
-        shade *= 0.82 + 0.18 * yarn
-        tint = 1.0 + 0.06 * (strand - 1)  # strands differ a little
+        shade = (0.8 + 0.2 * lobe) * (0.93 + 0.07 * yarn)
+        tint = 1.0 + 0.03 * (strand - 1)  # strands differ a little
         img = base[None, None, :] * (shade * tint)[..., None]
-        if tracer is not None:
-            line = (strand == 0) & (np.abs(w - 0.5) < 0.07)
+        if tracer is not None:  # a marker yarn along the middle of one strand
+            line = (strand == 0) & (np.abs(w - 0.5) < 0.05)
             img[line] = tracer * shade[line][:, None]
     else:
-        k = 2 * np.pi * s / (lay * 0.35)
+        k = 2 * np.pi * s / (lay * geom.BRAID_PITCH)
         a = theta * 8 - k
         c = theta * 8 + k
         weave = 0.5 * (np.abs(np.sin(a)) + np.abs(np.sin(c)))
         top_a = (np.floor(a / np.pi) + np.floor(c / np.pi)) % 2 == 0
-        carrier = np.where(top_a, np.floor(a / (2 * np.pi)), np.floor(c / (2 * np.pi)) + 8).astype(int) % 16
+        carrier = np.where(top_a, np.mod(np.floor(a / (2 * np.pi)), 8), np.mod(np.floor(c / (2 * np.pi)), 8) + 8).astype(int)
+        across = np.where(top_a, np.mod(c, np.pi), np.mod(a, np.pi)) / np.pi  # across the carrier showing
         along = np.where(top_a, np.mod(a, np.pi), np.mod(c, np.pi)) / np.pi
         yarn = 0.5 + 0.5 * np.cos(2 * np.pi * 4 * along)
-        shade = (0.55 + 0.45 * weave) * (0.88 + 0.12 * yarn)
+        shade = (0.84 + 0.16 * weave) * (0.95 + 0.05 * yarn)
         img = base[None, None, :] * shade[..., None]
-        if tracer is not None:
-            chosen = rng.choice(16, size=int(rng.integers(1, 4)), replace=False)
-            fleck = np.isin(carrier, chosen)
+        if tracer is not None:  # fleck: one or two carriers of another colour, as thin dashes
+            chosen = rng.choice(16, size=int(rng.integers(1, 3)), replace=False)
+            fleck = np.isin(carrier, chosen) & (np.abs(across - 0.5) < 0.3)
             img[fleck] = tracer * shade[fleck][:, None]
-    noise = rng.normal(0.0, 0.04, size=img.shape[:2]).astype(np.float32)
+    # wear: dirt or a little growth, and colour that isn't perfectly even
+    wear = tileable_noise_rect(rng, width, height, 3, 6)
+    if rng.random() < 0.35:
+        grime = np.array([0.25, 0.27, 0.12]) if rng.random() < 0.5 else np.array([0.2, 0.17, 0.12])
+        amount = (np.clip(wear - rng.uniform(0.4, 0.7), 0, 1) * rng.uniform(0.5, 1.5))[..., None]
+        img = img * (1 - amount) + grime * amount * shade[..., None]
+    img *= (0.92 + 0.08 * wear)[..., None]
+    noise = rng.normal(0.0, 0.025, size=img.shape[:2]).astype(np.float32)
     img *= (1.0 + noise)[..., None]
     if look.get("fuzz", 0.0) > 0:  # loose fibres: short light streaks
         n = int(400 * look["fuzz"])
@@ -117,8 +137,8 @@ def floor_texture(style, rng, size=1024):
                 col = np.clip(base * 1.5 + rng.uniform(0, 0.2), 0, 1)
                 cv2.circle(img, (int(c[0]), int(c[1])), r, col.tolist(), -1)
     elif style == "mud":
-        base = np.array([0.30, 0.27, 0.20]) * rng.uniform(0.5, 1.2) + hue_shift * 0.3
-        img = base * (0.75 + 0.25 * n1[..., None])
+        base = np.array([0.36, 0.33, 0.25]) * rng.uniform(0.8, 1.4) + hue_shift * 0.3
+        img = base * (0.8 + 0.2 * n1[..., None])
     elif style == "gravel":
         img = np.zeros((size, size, 3)) + np.array([0.35, 0.33, 0.30]) * rng.uniform(0.6, 1.2)
         for _ in range(int(rng.integers(1500, 4000))):
@@ -129,15 +149,15 @@ def floor_texture(style, rng, size=1024):
             cv2.ellipse(img, (int(c[0]), int(c[1])), ax, float(rng.uniform(0, 180)), 0, 360, col.tolist(), -1)
         img *= (0.85 + 0.15 * n2[..., None])
     elif style == "rock":
-        base = np.array([0.42, 0.41, 0.38]) * rng.uniform(0.5, 1.2) + hue_shift * 0.3
-        img = base * (0.5 + 0.5 * n1[..., None]) * (0.8 + 0.2 * n2[..., None])
-        cracks = np.abs(fbm(rng, size, 8, 3) - 0.5) < 0.012
-        img[cracks] *= 0.4
+        base = np.array([0.46, 0.45, 0.42]) * rng.uniform(0.75, 1.3) + hue_shift * 0.3
+        img = base * (0.7 + 0.3 * n1[..., None]) * (0.85 + 0.15 * n2[..., None])
+        cracks = np.abs(fbm(rng, size, 8, 3) - 0.5) < 0.01
+        img[cracks] *= 0.7
     elif style == "silt_weed":
-        base = np.array([0.33, 0.33, 0.22]) * rng.uniform(0.6, 1.2) + hue_shift * 0.3
-        img = base * (0.7 + 0.3 * n1[..., None])
+        base = np.array([0.38, 0.38, 0.27]) * rng.uniform(0.8, 1.3) + hue_shift * 0.3
+        img = base * (0.75 + 0.25 * n1[..., None])
         weed = fbm(rng, size, 12, 3) > rng.uniform(0.6, 0.75)
-        img[weed] = img[weed] * 0.5 + np.array([0.05, 0.18, 0.06]) * 0.5
+        img[weed] = img[weed] * 0.6 + np.array([0.12, 0.26, 0.1]) * 0.4
     else:  # pool_tiles
         tiles = int(rng.integers(4, 10))
         img = np.zeros((size, size, 3)) + np.array([0.55, 0.7, 0.8]) * rng.uniform(0.7, 1.1)
@@ -171,7 +191,13 @@ def surface_texture(material, rng, size=512):
         for r in range(rows):
             off = int(rng.integers(0, step))
             img[r * step:(r + 1) * step, off::step] *= 0.35
-    else:  # concrete (and rocks)
+    elif material == "pool":  # a test tank's wall: tiles or painted
+        return floor_texture("pool_tiles", rng, size) if rng.random() < 0.6 else \
+            to_u8(np.array([0.6, 0.72, 0.8]) * rng.uniform(0.5, 1.1) * (0.9 + 0.1 * n1[..., None]))
+    elif material == "rock":
+        base = np.array([0.45, 0.43, 0.39]) * rng.uniform(0.7, 1.25) + rng.uniform(-0.06, 0.06, 3)
+        img = base * (0.7 + 0.3 * n1[..., None]) * (0.85 + 0.15 * n2[..., None])
+    else:  # concrete
         img = np.array([0.5, 0.5, 0.48]) * rng.uniform(0.4, 1.2) * (0.75 + 0.25 * n1[..., None]) * (0.9 + 0.1 * n2[..., None])
     growth = fbm(rng, size, 6, 4) > rng.uniform(0.45, 0.8)  # weed, mussels, slime
     colour = [np.array([0.08, 0.2, 0.08]), np.array([0.12, 0.1, 0.06]), np.array([0.25, 0.28, 0.12])][int(rng.integers(3))]

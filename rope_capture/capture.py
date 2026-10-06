@@ -7,9 +7,10 @@ OUT/images, classes (from Replicator's semantic segmentation: only what is
 seen), masks, labels/*.json (BlueSim's fields), and OUT/done at the end.
 Train with Rope_Detection's dataset/train_seg.py OUT (no make_masks.py needed).
 
-Worlds: seabed (open floor, rocks; a new floor every rope), harbour (pilings,
-quay walls), marinegym (MarineGym's EmptyMarine seabed), wreck (--wreck
-model.usd placed near the rope). Run assets: build_rov.py first (the ROV and
+Worlds (--world): mixed (default) is a different kind of place for every rope:
+open seabed, reef, open water, a few harbour pilings, a quay wall, a test pool,
+and a wreck if --wreck model.usd is given; or one of these for the whole run,
+or marinegym (MarineGym's EmptyMarine seabed). Run assets: build_rov.py first (the ROV and
 gripper, from BlueSim's own models).
 """
 import argparse
@@ -24,6 +25,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+WORLD_CHOICES = ["mixed", "seabed", "reef", "open_water", "harbour", "quay", "pool", "marinegym", "wreck"]
 MARINEGYM_WORLD = os.path.join(HERE, "..", "marinegym", "robots", "assets", "usd", "worlds", "EmptyMarine.usd")
 
 
@@ -33,8 +35,9 @@ def parse_args():
     ap.add_argument("--count", type=int, default=500)
     ap.add_argument("--size", default="1920x1080", help="picture size, e.g. 960x540")
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--world", default="seabed", choices=["seabed", "harbour", "marinegym", "wreck"])
-    ap.add_argument("--wreck", default=None, help="a wreck model (.usd/.usdz) for --world wreck")
+    ap.add_argument("--world", default="mixed", choices=WORLD_CHOICES,
+                    help="mixed (default): a different kind of place for every rope; or one kind for the whole run")
+    ap.add_argument("--wreck", default=None, help="a wreck model (.usd/.usdz): --world wreck, or wrecks in a mixed run")
     ap.add_argument("--rov", default=os.path.join(HERE, "assets", "rov.usd"), help="from build_rov.py")
     ap.add_argument("--subframes", type=int, default=8, help="render passes per picture (more = cleaner, slower)")
     ap.add_argument("--min-contrast", type=float, default=0.02,

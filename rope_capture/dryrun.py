@@ -139,6 +139,19 @@ def cpu_render(stage, cam_R, cam_t, k, size, lights, rng):
         img[vv, u] = col[ok][order]
         dist[vv, u] = d[ok][order]
         classes[vv, u] = cls[ok][order]
+        # fill the gaps between the points (only inside surfaces, not the open water round them)
+        valid = np.isfinite(dist).astype(np.uint8)
+        inside = cv2.morphologyEx(valid, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8)).astype(bool)
+        for _ in range(3):
+            empty = ~np.isfinite(dist)
+            best = dist.copy()
+            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)):
+                nd = np.roll(dist, (dy, dx), (0, 1))
+                take = empty & inside & (nd < best)
+                best[take] = nd[take]
+                img[take] = np.roll(img, (dy, dx), (0, 1))[take]
+                classes[take] = np.roll(classes, (dy, dx), (0, 1))[take]
+            dist = best
     return (np.clip(img, 0, 1) * 255).astype(np.uint8), dist, classes
 
 
@@ -148,7 +161,9 @@ def main():
     ap.add_argument("--count", type=int, default=20)
     ap.add_argument("--size", default="480x270")
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--world", default="seabed")
+    ap.add_argument("--world", default="mixed")
+    ap.add_argument("--pictures-per-scene", type=int, default=None,
+                    help="a new rope (and place) after this many pictures (default: as the capture, 20)")
     ap.add_argument("--rov", default=os.path.join(HERE, "assets", "rov.usd"))
     ap.add_argument("--save-stage", default=None, help="also save the last picture's stage (.usda)")
     args = ap.parse_args()
@@ -167,6 +182,10 @@ def main():
     meta = json.load(open(os.path.splitext(args.rov)[0] + ".json"))
     stage = Usd.Stage.CreateInMemory()
     scene = IsaacScene(stage, args, meta, tex_dir)
+    if args.pictures_per_scene:
+        import ropecap.plan
+
+        ropecap.plan.PICTURES_PER_SCENE = args.pictures_per_scene
     planner = Planner(seed=args.seed, size=args.size_wh, world_kind=args.world, rov_meta=meta)
     rng = np.random.default_rng(args.seed)
     current = None

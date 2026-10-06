@@ -227,6 +227,10 @@ class IsaacScene:
             self.wall(k, wall, world, rng, tag)
         for k, rock in enumerate(world["rocks"]):
             self.rock(k, rock, world, rng, tag)
+        for k, kelp in enumerate(world.get("kelp", [])):
+            self.kelp(k, kelp, world)
+        for k, d in enumerate(world.get("debris", [])):
+            self.debris(k, d, world, rng, tag)
         if world.get("wreck"):
             wr = world["wreck"]
             ref = stage.DefinePrim("/World/Props/Wreck", "Xform")
@@ -296,10 +300,77 @@ class IsaacScene:
         pts = pts @ R.T + [rock["x"], rock["y"], z - 0.2 * scale[2]]
         mesh = new_mesh(self.stage, f"/World/Props/Rock{k}")
         set_mesh(mesh, pts, f, geom.normalize(pts - pts.mean(0)), v[:, :2] * rock["size"])
-        if k == 0:
-            tex = write_png(os.path.join(self.tex_dir, f"rock_{tag}.png"), textures.surface_texture("concrete", rng))
-            self.rock_mat, _, _ = material(self.stage, "/World/Props/RockLook", texture=tex, roughness=0.9)
-        bind(mesh.GetPrim(), self.rock_mat)
+        if k == 0:  # three rock looks per scene
+            self.rock_mats = []
+            for j in range(3):
+                tex = write_png(os.path.join(self.tex_dir, f"rock{j}_{tag}.png"), textures.surface_texture("rock", rng))
+                self.rock_mats.append(material(self.stage, f"/World/Props/RockLook{j}", texture=tex, roughness=0.9)[0])
+        bind(mesh.GetPrim(), self.rock_mats[k % 3])
+
+    def kelp(self, k, kelp, world):
+        """A ribbon of weed or kelp standing up from the floor, swaying."""
+        r2 = np.random.default_rng(kelp["seed"])
+        n = 16
+        t = np.linspace(0.0, 1.0, n)
+        sway = r2.uniform(0.05, 0.4) * kelp["height"]
+        a = r2.uniform(0, 2 * np.pi)
+        lean = np.array([np.cos(a), np.sin(a)])
+        z0 = float(world["floor"](kelp["x"], kelp["y"]))
+        centre = np.column_stack([kelp["x"] + lean[0] * sway * t ** 1.5 + 0.05 * np.sin(6 * t + a),
+                                  kelp["y"] + lean[1] * sway * t ** 1.5,
+                                  z0 + kelp["height"] * t])
+        side = np.array([-lean[1], lean[0], 0.0])
+        width = kelp["width"] * (0.4 + 0.6 * np.sin(np.pi * np.clip(t * 1.1, 0, 1)))
+        v = np.vstack([centre - side * width[:, None] / 2, centre + side * width[:, None] / 2])
+        i = np.arange(n - 1)
+        f = np.vstack([np.stack([i, i + n, i + 1], -1), np.stack([i + 1, i + n, i + n + 1], -1)])
+        mesh = new_mesh(self.stage, f"/World/Props/Kelp{k}")
+        normal = np.cross(side, [0.0, 0.0, 1.0])
+        set_mesh(mesh, v, f, np.tile(normal, (len(v), 1)))
+        mat, _, _ = material(self.stage, f"/World/Props/KelpLook{k}", tuple(np.clip(kelp["color"], 0.01, 1)), roughness=0.6)
+        bind(mesh.GetPrim(), mat)
+
+    def debris(self, k, d, world, rng, tag):
+        """A mooring block, a pipe, a log or a tyre lying on the floor."""
+        r2 = np.random.default_rng(d["seed"])
+        z0 = float(world["floor"](d["x"], d["y"]))
+        R = geom.rotation(geom.Z_UP, d["yaw"])
+        size = d["size"]
+        if d["kind"] == "block":
+            c = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (0, 1)], float)
+            v = c * [size / 2, size / 2, size * 0.6]
+            f = np.array([[0, 2, 3], [0, 3, 1], [4, 5, 7], [4, 7, 6], [0, 1, 5], [0, 5, 4],
+                          [2, 6, 7], [2, 7, 3], [0, 4, 6], [0, 6, 2], [1, 3, 7], [1, 7, 5]])
+            n = geom.normalize(v - [0, 0, size * 0.3])
+            uv = v[:, :2] + v[:, 2:3]
+            look = "concrete"
+        elif d["kind"] == "tyre":
+            u, w_ = np.meshgrid(np.linspace(0, 2 * np.pi, 25), np.linspace(0, 2 * np.pi, 13))
+            R0, r0 = size * 0.35, size * 0.12
+            v = np.stack([(R0 + r0 * np.cos(w_)) * np.cos(u), (R0 + r0 * np.cos(w_)) * np.sin(u), r0 + r0 * np.sin(w_)], -1).reshape(-1, 3)
+            n = geom.normalize(v - np.stack([R0 * np.cos(u), R0 * np.sin(u), np.full_like(u, r0)], -1).reshape(-1, 3))
+            i, j = np.mgrid[0:12, 0:24]
+            a = (i * 25 + j).reshape(-1)
+            f = np.vstack([np.stack([a, a + 1, a + 26], -1), np.stack([a, a + 26, a + 25], -1)])
+            uv = np.stack([u, w_], -1).reshape(-1, 2) / np.pi
+            look = "rubber"
+        else:  # pipe or log, lying down
+            radius = size * (0.08 if d["kind"] == "pipe" else 0.12)
+            length = size * r2.uniform(2.0, 5.0)
+            line = np.column_stack([np.linspace(-length / 2, length / 2, 8), np.zeros(8), np.full(8, radius)])
+            v, n, f, uv = geom.tube(line, radius, 16)
+            uv = uv * [2 * np.pi * radius, 1.0]
+            look = "steel" if d["kind"] == "pipe" else "timber"
+        v = v @ R.T + [d["x"], d["y"], z0 - 0.03]
+        n = n @ R.T
+        mesh = new_mesh(self.stage, f"/World/Props/Debris{k}")
+        set_mesh(mesh, v, f, n, uv)
+        if look == "rubber":
+            mat, _, _ = material(self.stage, f"/World/Props/DebrisLook{k}", (0.03, 0.03, 0.03), roughness=0.8)
+        else:
+            tex = write_png(os.path.join(self.tex_dir, f"debris{k}_{tag}.png"), textures.surface_texture(look, rng, 256))
+            mat, _, _ = material(self.stage, f"/World/Props/DebrisLook{k}", texture=tex, roughness=0.8)
+        bind(mesh.GetPrim(), mat)
 
     # ------------------------------------------------------------ per picture
     def show(self, view, index):

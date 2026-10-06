@@ -6,7 +6,7 @@
 # usage: ./collect_isaac.sh OUT [RUNS] [PICTURES_PER_RUN] [SIZE]
 #   ./collect_isaac.sh ~/rope_isaac                 # 5 runs x 2000, 1920x1080
 #   ./collect_isaac.sh ~/rope_isaac 2 500 960x540
-# WORLDS="seabed harbour" (default): taken in turn by the runs.
+# WORLDS="mixed" (default; e.g. "mixed reef"): taken in turn by the runs.
 # PYTHON: the Python that has Isaac Sim (default: python).
 # Seeds start at 1001, so they never repeat a BlueSim run's seed.
 set -e
@@ -15,7 +15,7 @@ RUNS=${2:-5}
 COUNT=${3:-2000}
 SIZE=${4:-1920x1080}
 PYTHON=${PYTHON:-python}
-read -r -a WORLDS <<< "${WORLDS:-seabed harbour}"
+read -r -a WORLDS <<< "${WORLDS:-mixed}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 for i in $(seq 1 "$RUNS"); do

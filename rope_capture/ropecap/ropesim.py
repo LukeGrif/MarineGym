@@ -25,7 +25,7 @@ class Rope:
     obstacles: [(x, y, radius)] vertical cylinders (pilings)."""
 
     def __init__(self, points, diameter, density, pins=None, floor=None, surface=0.0,
-                 current=(0.0, 0.0, 0.0), obstacles=(), iterations=30, bend=0.02):
+                 current=(0.0, 0.0, 0.0), obstacles=(), walls=(), iterations=30, bend=0.02):
         self.x = np.array(points, float)
         self.v = np.zeros_like(self.x)
         self.n = len(self.x)
@@ -39,6 +39,8 @@ class Rope:
         self.surface = surface
         self.current = np.asarray(current, float)
         self.obs = np.array([tuple(o) for o in obstacles], float).reshape(-1, 3)
+        # vertical walls: (a point on the wall, its normal towards the water), in x, y
+        self.walls = [(np.asarray(c, float)[:2], np.asarray(n, float)[:2]) for c, n in walls]
         self.iterations = iterations
         self.bend = bend
         seg = np.zeros(self.n)  # rope length each point stands for
@@ -122,6 +124,10 @@ class Rope:
                 pi, oi = np.nonzero(inside)
                 safe = np.maximum(dist[pi, oi], 1e-9)
                 p[free_idx[pi], :2] = self.obs[oi, :2] + d[pi, oi] * (reach[0, oi] / safe)[:, None]
+        for c, n in self.walls:
+            depth = (p[:, :2] - c) @ n - self.r
+            behind = (depth < 0) & free
+            p[behind, :2] -= np.outer(depth[behind], n)
         return below
 
     def step(self, dt=1.0 / 60.0):

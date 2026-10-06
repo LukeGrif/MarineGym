@@ -14,6 +14,9 @@ import numpy as np
 # isaac/ROV (forward, left, up) = GODOT_TO_ROV @ godot (x left, y up, z forward)
 GODOT_TO_ROV = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 Z_UP = np.array([0.0, 0.0, 1.0])
+# a braid's carriers repeat every BRAID_PITCH lay lengths along the rope: a whole number
+# of times in the rope's texture (2 lay lengths), so it has no seam
+BRAID_PITCH = 1.0 / 4.0  # (each carrier makes one turn every 2 lay lengths, so it meets itself at the seam too)
 
 
 def godot_transform(text):
@@ -201,9 +204,8 @@ def strand_radius(radius, construction, lay_length, rng_phase=0.0):
             lobe = np.abs(np.cos(1.5 * phase))
             return radius * (0.80 + 0.20 * np.sqrt(lobe))
         # braided: 16 carriers, 8 each way, over-under
-        k = 8
-        a = theta * k - 2 * np.pi * s / (lay_length * 0.35) * k / 8
-        c = theta * k + 2 * np.pi * s / (lay_length * 0.35) * k / 8
+        a = theta * 8 - 2 * np.pi * s / (lay_length * BRAID_PITCH)
+        c = theta * 8 + 2 * np.pi * s / (lay_length * BRAID_PITCH)
         weave = 0.5 * (np.abs(np.sin(a)) + np.abs(np.sin(c)))
         return radius * (0.93 + 0.07 * weave)
     return fn
