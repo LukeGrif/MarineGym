@@ -1,0 +1,7 @@
+# In the same Python environment as Isaac Sim 5.x (pip install "isaacsim[all,extscache]==5.1.*" --extra-index-url https://pypi.nvidia.com)
+numpy
+opencv-python-headless
+trimesh
+pycollada
+pytest
+# build_rov.py and the tests also run without Isaac Sim, with: pip install usd-core
